@@ -12,20 +12,21 @@
   color: var(--accent);
 }
 
-:global(h1) {
+/* ✅ Bọc global selector trong class local */
+.heroCard :global(h1) {
   margin: 0;
   font-size: clamp(32px, 4vw, 46px);
   line-height: 1.15;
 }
 
-:global(p) {
+.heroCard :global(p) {
   margin: 0;
   color: var(--text-secondary);
   font-size: 16px;
   line-height: 1.7;
 }
 
-:global(ul) {
+.heroCard :global(ul) {
   margin: 0;
   padding-left: 20px;
   color: var(--text-secondary);
