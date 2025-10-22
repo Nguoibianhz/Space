@@ -1,10 +1,45 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useChatHistory } from '../hooks/useChatHistory';
 import { AI_MODES, getModeById } from '../lib/aiModes';
 import styles from '../styles/StudySpaceChat.module.css';
 
 const MAX_CONTEXT_MESSAGES = 7;
+
+const markdownComponents = {
+  code({ inline, className, children, ...props }) {
+    if (inline) {
+      return (
+        <code className={`${styles.inlineCode} ${className || ''}`} {...props}>
+          {children}
+        </code>
+      );
+    }
+    return (
+      <pre className={`${styles.codeBlock} ${className || ''}`} {...props}>
+        <code>{children}</code>
+      </pre>
+    );
+  },
+  a({ href, children, ...props }) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" {...props}>
+        {children}
+      </a>
+    );
+  },
+  table({ children }) {
+    return <table className={styles.table}>{children}</table>;
+  },
+  th({ children }) {
+    return <th className={styles.tableHeader}>{children}</th>;
+  },
+  td({ children }) {
+    return <td className={styles.tableCell}>{children}</td>;
+  },
+};
 
 function buildPayloadMessages(messages) {
   const trimmed = messages.slice(-MAX_CONTEXT_MESSAGES);
@@ -277,11 +312,42 @@ export default function StudySpaceChat({ user }) {
               key={message.id}
               className={`chat-bubble ${message.role === 'user' ? 'user' : 'ai'}`}
             >
-              {message.content}
+              <div className={styles.messageBody}>
+                {message.content ? (
+                  <ReactMarkdown
+                    className={styles.markdown}
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownComponents}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                ) : null}
+                {Array.isArray(message.attachments) && message.attachments.length > 0 && (
+                  <div className={styles.attachmentGallery}>
+                    {message.attachments.map((file) => (
+                      <figure key={file.id} className={styles.attachmentItem}>
+                        {file.mimeType.startsWith('image/') ? (
+                          <img src={`data:${file.mimeType};base64,${file.data}`} alt={file.name} />
+                        ) : (
+                          <figcaption>{file.name}</figcaption>
+                        )}
+                      </figure>
+                    ))}
+                  </div>
+                )}
+              </div>
             </article>
           ))}
           {streamingText && (
-            <article className={`chat-bubble ai`}>{streamingText}</article>
+            <article className={`chat-bubble ai`}>
+              <ReactMarkdown
+                className={styles.markdown}
+                remarkPlugins={[remarkGfm]}
+                components={markdownComponents}
+              >
+                {streamingText}
+              </ReactMarkdown>
+            </article>
           )}
         </div>
 
