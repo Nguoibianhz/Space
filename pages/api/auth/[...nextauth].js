@@ -6,6 +6,22 @@ import GoogleProvider from 'next-auth/providers/google';
 
 const TURNSTILE_SECRET = '0x4AAAAAAB73ye6AEry1nmscbI8FjBdMD5Y';
 
+function sanitizeBaseUrl(raw) {
+  if (!raw) {
+    return '';
+  }
+  const trimmed = raw.replace(/\/+$/, '');
+  const shouldForceHttps =
+    process.env.NODE_ENV === 'production' ||
+    (process.env.NEXTAUTH_URL && process.env.NEXTAUTH_URL.startsWith('https://'));
+  if (shouldForceHttps && trimmed.startsWith('http://')) {
+    return `https://${trimmed.slice('http://'.length)}`;
+  }
+  return trimmed;
+}
+
+const PHP_BASE_URL = sanitizeBaseUrl(process.env.NEXT_PUBLIC_PHP_BASE_URL || '');
+
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token) {
     return { success: false, message: 'Thiếu xác thực Cloudflare Turnstile.' };
@@ -46,18 +62,35 @@ export default NextAuth({
           throw new Error(verification.message);
         }
 
-        const response = await fetch(`${process.env.NEXT_PUBLIC_PHP_BASE_URL}/login.php`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email: credentials?.email,
-            password: credentials?.password,
-            remember: credentials?.remember === 'true',
-          }),
-        });
-        const data = await response.json();
+        if (!PHP_BASE_URL) {
+          throw new Error('Chưa cấu hình endpoint PHP (NEXT_PUBLIC_PHP_BASE_URL).');
+        }
+
+        let response;
+        try {
+          response = await fetch(`${PHP_BASE_URL}/login.php`, {
+            method: 'POST',
+            mode: 'cors',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              email: credentials?.email,
+              password: credentials?.password,
+              remember: credentials?.remember === 'true',
+            }),
+          });
+        } catch (error) {
+          throw new Error('Không thể kết nối tới máy chủ đăng nhập PHP.');
+        }
+
+        let data = null;
+        try {
+          data = await response.json();
+        } catch (error) {
+          console.warn('Không thể parse phản hồi đăng nhập', error);
+        }
         if (!response.ok) {
           throw new Error(data?.message || 'Thông tin đăng nhập không hợp lệ.');
         }
@@ -94,6 +127,12 @@ export default NextAuth({
         token.email = user.email;
         token.remember = user.remember;
         token.sessionExpiresIn = user.remember ? 60 * 60 * 24 * 30 : 60 * 60 * 24;
+        token.exp = Math.floor(Date.now() / 1000) + token.sessionExpiresIn;
+      } else if (token?.remember && token.sessionExpiresIn) {
+        const now = Math.floor(Date.now() / 1000);
+        if (!token.exp || token.exp < now) {
+          token.exp = now + token.sessionExpiresIn;
+        }
       }
       return token;
     },
@@ -101,6 +140,7 @@ export default NextAuth({
       session.user.id = token.id;
       session.user.remember = token.remember;
       session.maxAge = token.sessionExpiresIn;
+      session.expires = token.exp ? new Date(token.exp * 1000).toISOString() : session.expires;
       return session;
     },
   },
